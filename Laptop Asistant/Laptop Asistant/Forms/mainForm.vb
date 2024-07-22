@@ -1,21 +1,15 @@
 ﻿Imports System.Threading
 Imports Telegram.Bot
 Imports Telegram.Bot.Exceptions
-Imports Telegram.Bot.Polling
 Imports Telegram.Bot.Types
 Imports Telegram.Bot.Types.Enums
 Imports Telegram.Bot.Types.ReplyMarkups
-Imports Telegram.Bot.Types.Update
-Imports System.Drawing
 Imports System.Drawing.Imaging
 Imports System.IO
 Imports Telegram.Bot.Types.InputFiles
-Imports System.Data.OleDb
-
-Imports System.Diagnostics
 Imports System.Timers
 
-Public Class Form1
+Public Class mainForm
     Dim log As String
     Dim botClient As TelegramBotClient
     Dim cts As CancellationTokenSource
@@ -59,12 +53,24 @@ Public Class Form1
         End Try
     End Sub
 
+    Private Function IsUserAuthorized(id_telegram As String) As Boolean
+        Dim query As String = "SELECT COUNT(*) FROM [m_user] WHERE [id_telegram] = @id_telegram"
+        Dim connection As New OleDbConnection(connectionString)
+        Using command As New OleDbCommand(query, connection)
+            command.Parameters.AddWithValue("@id_telegram", id_telegram)
+            connection.Open()
+            Dim count As Integer = Convert.ToInt32(command.ExecuteScalar())
+            Return count > 0
+        End Using
+    End Function
+
     Private Async Function HandleUpdateAsync(botClient As ITelegramBotClient, update As Update, cancellationToken As CancellationToken) As Task
         Try
             If update.Type = UpdateType.CallbackQuery Then
                 Dim callbackQuery = update.CallbackQuery
                 Dim data = callbackQuery.Data
                 Dim chatId = callbackQuery.Message.Chat.Id
+
 
                 ' Hapus pesan yang mengandung inline keyboard setelah tombol ditekan
                 Await botClient.DeleteMessageAsync(chatId, callbackQuery.Message.MessageId, cancellationToken)
@@ -130,10 +136,7 @@ Public Class Form1
                         Await botClient.SendTextMessageAsync(chatId:=chatId, text:="Komputer sedang dimatikan...", cancellationToken:=cancellationToken)
 
                         ' Matikan komputer
-                        Dim processInfo As New ProcessStartInfo("shutdown", "/s /t 0") With {
-        .CreateNoWindow = True,
-        .UseShellExecute = False
-    }
+                        Dim processInfo As New ProcessStartInfo("shutdown", "/s /t 0") With {.CreateNoWindow = True, .UseShellExecute = False}
                         Process.Start(processInfo)
 
                         log = log & Environment.NewLine & "- Shutdown Command Issued"
@@ -144,6 +147,11 @@ Public Class Form1
                 Dim message = update.Message
                 Dim messageText = message.Text
                 Dim chatId = message.Chat.Id
+
+                If Not IsUserAuthorized(chatId) Then
+                    Await botClient.SendTextMessageAsync(chatId, "Terima kasih telah menggunakan bot ini, id Telegram anda adalah " & chatId, cancellationToken:=cancellationToken)
+                    Return
+                End If
 
                 Select Case messageText
                     Case "Sticker"
@@ -209,72 +217,158 @@ Public Class Form1
         Return Task.CompletedTask
     End Function
 
-    Private Async Sub Button1_ClickAsync(sender As Object, e As EventArgs) Handles Button1.Click
-        If Button1.Text = "Start Bot" Then
-            Dim token As String = "6872091136:AAEW2qt4w9vcKFwxCzDzX5-_ecBBKcIc0p0"
+
+    Private Async Sub startBot()
+        Try
+            '            If btnStart.Text = "Start Bot" Then
             botClient = New TelegramBotClient(token)
-            cts = New CancellationTokenSource()
+                cts = New CancellationTokenSource()
 
-            Dim m = Await botClient.GetMeAsync()
-            Console.WriteLine($"Hello, World! I am user {m.Id} and my name is {m.FirstName}.")
-            TextBox1.Text = $"Hello, World! I am user {m.Id} and my name is {m.FirstName}"
+                Dim m = Await botClient.GetMeAsync()
+                Console.WriteLine($"Hello, World! I am user {m.Id} and my name is {m.FirstName}.")
+                TextBox1.Text = $"Hello, World! I am user {m.Id} and my name is {m.FirstName}"
 
-            botClient.StartReceiving(
+                botClient.StartReceiving(
                 updateHandler:=AddressOf HandleUpdateAsync,
                 pollingErrorHandler:=AddressOf HandlePollingErrorAsync,
                 cancellationToken:=cts.Token
             )
 
-            Dim mm = Await botClient.GetMeAsync()
-            Console.WriteLine($"Start listening for @{mm.Username}")
-            Console.ReadLine()
-            Button1.Text = "Stop Bot"
+                Dim mm = Await botClient.GetMeAsync()
+                Console.WriteLine($"Start listening for @{mm.Username}")
+                Console.ReadLine()
+            'btnStart.Text = "Stop Bot"
             log = "- Bot Start"
-            stopwatch.Start()
-            timer.Start()
-        Else
-            cts.Cancel()
-            Button1.Text = "Start Bot"
-            log = "- Bot Stop"
-            stopwatch.Stop()
-            timer.Stop()
+                stopwatch.Start()
+                timer.Start()
+            ''Else
+            'cts.Cancel()
+            '    btnStart.Text = "Start Bot"
+            '    log = "- Bot Stop"
+            '    stopwatch.Stop()
+            '    timer.Stop()
 
-            ' Catat waktu yang telah berlalu
-            Dim elapsed As TimeSpan = stopwatch.Elapsed
-            MessageBox.Show($"Waktu yang telah berlalu: {elapsed.Hours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}")
+            '    ' Catat waktu yang telah berlalu
+            '    Dim elapsed As TimeSpan = stopwatch.Elapsed
+            '    MessageBox.Show($"Waktu yang telah berlalu: {elapsed.Hours:00}:{elapsed.Minutes:00}:{elapsed.Seconds:00}")
 
-            ' Reset stopwatch
-            stopwatch.Reset()
-        End If
-        TextBox2.Text = log
+            '    ' Reset stopwatch
+            '    stopwatch.Reset()
+            'End If
+            TextBox2.Text = log
+        Catch ex As Exception
+            MessageBox.Show(ex.Message)
+        End Try
+
     End Sub
 
-    Private Sub Button2_Click(sender As Object, e As EventArgs) Handles Button2.Click
-        TextBox2.Text = log
-    End Sub
+
+    Private Function GetTelegramChatIds() As List(Of Long)
+        Dim chatIds As New List(Of Long)
+
+        Using connection As New OleDbConnection(connectionString)
+            Try
+                Dim query As String = "SELECT id_telegram FROM m_user"
+                connection.Open()
+                Using command As New OleDbCommand(query, connection)
+                    Using reader As OleDbDataReader = command.ExecuteReader()
+                        While reader.Read()
+                            If Not IsDBNull(reader("id_telegram")) Then
+                                chatIds.Add(Convert.ToInt64(reader("id_telegram")))
+                            End If
+                        End While
+                    End Using
+                End Using
+            Catch ex As OleDbException
+                MsgBox("Gagal mengambil data dari database: " & ex.Message)
+            End Try
+        End Using
+
+        Return chatIds
+    End Function
 
     Private Async Sub Timer1_Tick(sender As Object, e As EventArgs) Handles Timer1.Tick
-        Dim chatId As Long = 1486234824
-        Dim cancellationToken As CancellationToken = CancellationToken.None
+        If isUseNotif Then
+            Dim chatIds As List(Of Long) = GetTelegramChatIds()
+            For Each chatId As Long In chatIds
+                Dim cancellationToken As CancellationToken = CancellationToken.None
 
-        Try
-            Await botClient.SendTextMessageAsync(
-                chatId:=chatId,
-                text:="Komputer masih menyala",
-                cancellationToken:=cancellationToken
-            )
-        Catch ex As Exception
-            MsgBox("Gagal mengirim pesan: " & ex.Message)
-        End Try
+                Try
+                    Await botClient.SendTextMessageAsync(
+                        chatId:=chatId,
+                        text:="Komputer masih menyala",
+                        cancellationToken:=cancellationToken
+                    )
+                Catch ex As Exception
+                    MsgBox("Gagal mengirim pesan ke chat ID " & chatId & ": " & ex.Message)
+                End Try
+            Next
+        End If
     End Sub
 
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-
-        Timer1.Interval = 10000 ' Interval dalam milidetik (10000 ms = 10 detik)
-        Timer1.Start()
+        setRefSetting()
+        If isUseNotif Then
+            '   Timer1.Interval = 60000
+            If intervalNotif > 0 Then
+                Timer1.Interval = intervalNotif * (1000 * 60)
+                Timer1.Start()
+            End If
+        End If
+        startBot()
     End Sub
 
-    Private Sub Button3_Click(sender As Object, e As EventArgs) Handles Button3.Click
+    Private Sub btnSetting_Click(sender As Object, e As EventArgs) Handles btnSetting.Click
+        passwordForm.Show()
+    End Sub
 
+    Private Sub setRefSetting()
+        Try
+            Dim query As String = "SELECT key, value FROM ref_setting_varchar"
+            Using connection As New OleDbConnection(connectionString)
+                Using command As New OleDbCommand(query, connection)
+                    connection.Open()
+                    Using reader As OleDbDataReader = command.ExecuteReader()
+                        If reader.HasRows Then
+                            While reader.Read()
+                                If reader("key").ToString = "token" Then
+                                    token = reader("value").ToString
+                                ElseIf reader("key").ToString = "password" Then
+                                    password = reader("value").ToString
+                                ElseIf reader("key").ToString = "notif" Then
+                                    intervalNotif = reader("value").ToString
+                                End If
+                            End While
+                        Else
+                            MessageBox.Show("No rows found.")
+                        End If
+                    End Using
+                End Using
+                connection.Close()
+            End Using
+
+            query = "SELECT key, value FROM ref_setting_boolean"
+            Using connection As New OleDbConnection(connectionString)
+                Using command As New OleDbCommand(query, connection)
+                    connection.Open()
+                    Using reader As OleDbDataReader = command.ExecuteReader()
+                        If reader.HasRows Then
+                            While reader.Read()
+                                If reader("key").ToString = "notif" Then
+                                    isUseNotif = reader("value")
+                                ElseIf reader("key").ToString = "startup" Then
+                                    isStartUp = reader("value")
+                                End If
+                            End While
+                        Else
+                            MessageBox.Show("No rows found.")
+                        End If
+                    End Using
+                End Using
+                connection.Close()
+            End Using
+        Catch ex As Exception
+            MessageBox.Show(ex.Message)
+        End Try
     End Sub
 End Class

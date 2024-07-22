@@ -14,7 +14,11 @@ Module generalFunction
     Private botClient As TelegramBotClient
 
     Public connectionString As String = $"Provider=Microsoft.ACE.OLEDB.12.0;Data Source={GetDatabasePath()};"
-
+    Public token As String
+    Public password As String
+    Public intervalNotif As Integer
+    Public isUseNotif As Boolean
+    Public isStartUp As Boolean
     Private Function GetDatabasePath() As String
         Dim appDirectory As String = AppDomain.CurrentDomain.BaseDirectory
         Return Path.Combine(appDirectory, "Data", "LaptopAsistantDb.accdb")
